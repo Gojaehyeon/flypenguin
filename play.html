@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>FlyPenguin — 팔로 나는 펭귄</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --accent:#ffd166; --cyan:#5be7ff; --pink:#ff4d9d; --green:#7CFC8A;
+    --ink:#eaf6ff; --dim:#9fb6d6;
+    --pixel:'Press Start 2P',monospace;
+    --term:'VT323',monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden;background:#0a1622;color:var(--ink);
+    font-family:var(--term);font-size:18px;
+    -webkit-user-select:none;user-select:none;
+    image-rendering:pixelated;-webkit-font-smoothing:none}
+  #app{position:fixed;inset:0}
+  canvas#scene{position:absolute;inset:0;display:block}
+
+  /* CRT 스캔라인 + 비네팅 오버레이 */
+  #app::after{content:'';position:absolute;inset:0;z-index:30;pointer-events:none;
+    background:
+      repeating-linear-gradient(0deg, rgba(0,0,0,.16) 0 1px, transparent 1px 3px),
+      radial-gradient(ellipse at center, transparent 58%, rgba(2,6,14,.55) 100%);
+    mix-blend-mode:multiply}
+
+  /* 웹캠 미리보기(우하단, 미러) — 픽셀 프레임 */
+  #camWrap{position:absolute;right:14px;bottom:14px;width:200px;height:150px;
+    overflow:hidden;border:3px solid var(--cyan);z-index:6;background:#000;
+    box-shadow:0 0 0 3px #0a1622, 6px 6px 0 0 rgba(0,0,0,.5), 0 0 18px rgba(91,231,255,.4);
+    image-rendering:auto}
+  #cam{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+  #poseFx{position:absolute;inset:0;width:100%;height:100%;transform:scaleX(-1)}
+  #camWrap .tag{position:absolute;left:7px;top:6px;font-family:var(--pixel);font-size:8px;
+    letter-spacing:1px;color:var(--cyan);text-shadow:1px 1px 0 #000;z-index:2}
+
+  /* HUD */
+  #hud{position:absolute;top:0;left:0;right:0;padding:18px 20px;z-index:5;
+    display:flex;justify-content:space-between;align-items:flex-start;pointer-events:none}
+  .brand{font-family:var(--pixel);font-size:16px;line-height:1.5;color:var(--cyan);
+    text-shadow:2px 2px 0 #07101e, 0 0 10px rgba(91,231,255,.4)}
+  .brand b{color:var(--accent);text-shadow:2px 2px 0 #07101e}
+  .stat{text-align:right}
+  .stat .big{font-family:var(--pixel);font-size:22px;color:var(--accent);
+    text-shadow:2px 2px 0 #07101e, 0 0 10px rgba(255,209,102,.5)}
+  .stat .lbl{font-family:var(--pixel);font-size:8px;letter-spacing:2px;text-transform:uppercase;
+    color:var(--dim);margin-top:6px}
+
+  /* 상태 칩(현재 동작) — 픽셀 블록 */
+  #action{position:absolute;left:50%;top:18px;transform:translateX(-50%);z-index:5;
+    display:flex;gap:10px;pointer-events:none}
+  .chip{font-family:var(--pixel);font-size:9px;letter-spacing:1px;padding:9px 12px;
+    background:#0d1f33;border:2px solid #2c4666;color:var(--dim);
+    box-shadow:3px 3px 0 rgba(0,0,0,.45);transition:none}
+  .chip.on{background:var(--accent);color:#1a1206;border-color:#fff3c4;
+    box-shadow:3px 3px 0 #7a5a12, 0 0 16px rgba(255,209,102,.7)}
+
+  /* 시작 게이트 — 반투명: 뒤에서 펭귄이 실제로 날아다님 */
+  #gate{position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:26px;text-align:center;padding:24px;
+    background:linear-gradient(180deg, rgba(8,16,30,.34) 0%, rgba(8,16,30,.62) 100%)}
+  #gate h1{font-family:var(--pixel);font-size:clamp(26px,5.5vw,52px);line-height:1.15;
+    color:var(--accent);letter-spacing:1px;
+    text-shadow:0 0 0 #000,
+      4px 4px 0 var(--pink), 8px 8px 0 rgba(0,0,0,.45);
+    animation:bob 2.6s ease-in-out infinite}
+  @keyframes bob{50%{transform:translateY(-8px)}}
+  #gate .sub{font-family:var(--term);font-size:21px;line-height:1.5;color:var(--ink);
+    max-width:560px;text-shadow:1px 1px 0 #000}
+  #gate .sub b{color:var(--cyan)}
+  .moves{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;max-width:660px}
+  .move{font-family:var(--term);font-size:18px;color:var(--dim);
+    border:2px solid #2c4666;padding:12px 16px;min-width:130px;
+    background:rgba(10,24,40,.55);box-shadow:3px 3px 0 rgba(0,0,0,.4)}
+  .move b{display:block;font-family:var(--pixel);font-size:10px;color:var(--green);
+    margin-bottom:8px;text-shadow:1px 1px 0 #000}
+  #start{cursor:pointer;pointer-events:auto;font-family:var(--pixel);font-size:15px;
+    padding:18px 30px;border:3px solid #fff3c4;color:#1a1206;
+    background:var(--accent);border-radius:0;
+    box-shadow:5px 5px 0 #7a5a12, 0 0 26px rgba(255,209,102,.5);
+    transition:transform .08s steps(2), box-shadow .08s steps(2)}
+  #start:hover{transform:translate(2px,2px);box-shadow:3px 3px 0 #7a5a12, 0 0 30px rgba(255,209,102,.7)}
+  #start:active{transform:translate(5px,5px);box-shadow:0 0 0 #7a5a12}
+  #gate.loading #start{opacity:.5;pointer-events:none}
+  #status{font-family:var(--pixel);font-size:9px;color:var(--cyan);min-height:18px;letter-spacing:1px}
+  .spin{width:13px;height:13px;border:2px solid #2c4666;border-top-color:var(--cyan);
+    display:inline-block;vertical-align:-2px;margin-right:8px;animation:sp .8s steps(8) infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .hint{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);z-index:5;
+    font-family:var(--pixel);font-size:9px;color:var(--dim);letter-spacing:1px;
+    text-shadow:1px 1px 0 #000;pointer-events:none}
+
+  /* 플레이 전엔 게임 HUD 숨김 → 시작화면은 펭귄 비행 + 타이틀만 */
+  body:not(.playing) #camWrap,
+  body:not(.playing) #action,
+  body:not(.playing) #hud,
+  body:not(.playing) .hint{display:none}
+
+  /* ===== 공통 오버레이 화면 ===== */
+  .screen{position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:22px;text-align:center;padding:24px;
+    background:linear-gradient(180deg, rgba(8,16,30,.34) 0%, rgba(8,16,30,.66) 100%)}
+  .hidden{display:none !important}
+
+  /* 재사용 픽셀 버튼 */
+  .rbtn{cursor:pointer;pointer-events:auto;font-family:var(--pixel);font-size:14px;
+    padding:16px 26px;border:3px solid #fff3c4;color:#1a1206;background:var(--accent);
+    box-shadow:5px 5px 0 #7a5a12, 0 0 26px rgba(255,209,102,.5);
+    transition:transform .08s steps(2), box-shadow .08s steps(2)}
+  .rbtn:hover{transform:translate(2px,2px);box-shadow:3px 3px 0 #7a5a12, 0 0 30px rgba(255,209,102,.7)}
+  .rbtn:active{transform:translate(5px,5px);box-shadow:0 0 0 #7a5a12}
+  .link{pointer-events:auto;cursor:pointer;background:none;border:0;color:var(--dim);
+    font-family:var(--pixel);font-size:9px;letter-spacing:1px;text-decoration:underline}
+  .blink{font-family:var(--pixel);font-size:11px;color:var(--cyan);letter-spacing:2px;
+    animation:blink 1s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+
+  /* ===== 프롤로그 ===== */
+  #story .panel{max-width:680px;background:rgba(8,16,30,.78);border:3px solid var(--cyan);
+    box-shadow:6px 6px 0 rgba(0,0,0,.5), 0 0 24px rgba(91,231,255,.25);
+    padding:34px 30px;display:flex;flex-direction:column;gap:22px;align-items:center}
+  #story .ptitle{font-family:var(--pixel);font-size:13px;color:var(--pink);letter-spacing:2px;
+    text-shadow:2px 2px 0 #000}
+  #story .story-text{font-family:var(--term);font-size:23px;line-height:1.55;color:var(--ink);
+    text-shadow:1px 1px 0 #000;min-height:200px;white-space:pre-wrap;text-align:left}
+  #story .story-text .cur{color:var(--accent);animation:blink 1s steps(1) infinite}
+
+  /* ===== 캐릭터 셀렉트 ===== */
+  #select{justify-content:flex-start;gap:16px;padding-top:5vh}
+  .sel-title{font-family:var(--pixel);font-size:clamp(15px,3.2vw,26px);color:var(--accent);
+    letter-spacing:2px;text-shadow:3px 3px 0 var(--pink), 5px 5px 0 rgba(0,0,0,.4)}
+  .roster{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;max-width:760px}
+  .pcard{cursor:pointer;pointer-events:auto;width:104px;padding:8px 6px 10px;
+    background:rgba(10,22,40,.6);border:3px solid #2c4666;box-shadow:3px 3px 0 rgba(0,0,0,.45);
+    display:flex;flex-direction:column;align-items:center;gap:6px;transition:transform .1s steps(2)}
+  .pcard svg{width:74px;height:74px;display:block}
+  .pcard .pn{font-family:var(--pixel);font-size:8px;color:var(--dim);letter-spacing:.5px}
+  .pcard.sel{border-color:var(--accent);background:rgba(40,32,12,.65);
+    box-shadow:3px 3px 0 #7a5a12, 0 0 18px rgba(255,209,102,.55);transform:translateY(-6px)}
+  .pcard.sel .pn{color:var(--accent)}
+
+  .sel-detail{display:flex;gap:24px;max-width:760px;width:100%;justify-content:center;
+    align-items:flex-start;flex-wrap:wrap;min-height:150px}
+  .d-left{min-width:240px;text-align:left}
+  .d-name{font-family:var(--pixel);font-size:20px;color:var(--cyan);text-shadow:2px 2px 0 #000}
+  .d-epithet{font-family:var(--term);font-size:20px;color:var(--pink);margin:4px 0 12px}
+  .d-stats{display:flex;flex-direction:column;gap:7px}
+  .stat-row{display:flex;align-items:center;gap:10px;font-family:var(--pixel);font-size:8px;color:var(--dim)}
+  .stat-row .sl{width:64px;letter-spacing:1px}
+  .bar{display:flex;gap:3px}
+  .bar i{width:13px;height:11px;background:#22384f;display:block}
+  .bar i.f{background:var(--green);box-shadow:0 0 6px rgba(124,252,138,.6)}
+  .d-story{flex:1;min-width:240px;max-width:360px;text-align:left;font-family:var(--term);
+    font-size:20px;line-height:1.5;color:var(--ink);text-shadow:1px 1px 0 #000;
+    border-left:3px solid #2c4666;padding-left:16px}
+
+  .sel-foot{display:flex;align-items:center;gap:20px;flex-wrap:wrap;justify-content:center}
+  .sel-keys{font-family:var(--pixel);font-size:9px;color:var(--dim);letter-spacing:1px}
+  .sel-status{font-family:var(--pixel);font-size:9px;color:var(--cyan);min-height:14px;letter-spacing:1px}
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="scene"></canvas>
+
+  <div id="hud">
+    <div class="brand">🐧 Fly<b>Penguin</b></div>
+    <div class="stat"><div class="big" id="dist">0</div><div class="lbl">meters</div></div>
+  </div>
+
+  <div id="action">
+    <div class="chip" id="cLeft">◀ 좌</div>
+    <div class="chip" id="cStraight">직진</div>
+    <div class="chip" id="cRight">우 ▶</div>
+    <div class="chip" id="cFlap">파닥 ↑</div>
+  </div>
+
+  <div id="camWrap">
+    <span class="tag">POSE</span>
+    <video id="cam" autoplay playsinline muted></video>
+    <canvas id="poseFx"></canvas>
+  </div>
+
+  <div class="hint">양팔을 벌려 날개처럼! · 파닥파닥 = 상승 · 한쪽 팔 내리면 그쪽으로</div>
+
+  <!-- 1) 타이틀 -->
+  <div id="gate" class="screen">
+    <h1>FLY<br>PENGUIN</h1>
+    <p class="sub"><b>오로라 로드</b>의 전설 — 팔을 날개 삼아 별이 된 펭귄의 이야기</p>
+    <button id="start" class="rbtn">▶ 게임 시작</button>
+    <div class="blink">PRESS START</div>
+  </div>
+
+  <!-- 2) 프롤로그 -->
+  <div id="story" class="screen hidden">
+    <div class="panel">
+      <div class="ptitle">◆ PROLOGUE ◆</div>
+      <p class="story-text" id="storyText"></p>
+      <button id="toSelect" class="rbtn">계속 ▶</button>
+      <button id="skipStory" class="link">건너뛰기</button>
+    </div>
+  </div>
+
+  <!-- 3) 캐릭터 셀렉트 -->
+  <div id="select" class="screen hidden">
+    <div class="sel-title">SELECT YOUR PENGUIN</div>
+    <div id="roster" class="roster"></div>
+    <div class="sel-detail">
+      <div class="d-left">
+        <div class="d-name" id="dName"></div>
+        <div class="d-epithet" id="dEpithet"></div>
+        <div class="d-stats" id="dStats"></div>
+      </div>
+      <div class="d-story" id="dStory"></div>
+    </div>
+    <div class="sel-foot">
+      <span class="sel-keys">◀ ▶ 선택 · ENTER 결정</span>
+      <button id="confirmChar" class="rbtn">이 펭귄으로 출발 ✈</button>
+    </div>
+    <div id="status" class="sel-status"></div>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { PoseLandmarker, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.12';
+
+/* ======================================================================
+   FlyPenguin — 팔 제스처로 조종하는 레트로 로우폴리 비행 게임
+   입력: MediaPipe Pose (어깨/팔꿈치/손목)
+   형태: three.js — 펭귄 + 끝없는 지형(나무/돌/구름)
+   ====================================================================== */
+
+// ---------- DOM ----------
+const video   = document.getElementById('cam');
+const poseFx  = document.getElementById('poseFx');
+const pctx    = poseFx.getContext('2d');
+const gate    = document.getElementById('gate');
+const startBtn= document.getElementById('start');
+const statusEl= document.getElementById('status');
+const distEl  = document.getElementById('dist');
+const chips = {
+  left:    document.getElementById('cLeft'),
+  straight:document.getElementById('cStraight'),
+  right:   document.getElementById('cRight'),
+  flap:    document.getElementById('cFlap'),
+};
+
+// ======================================================================
+//  THREE.JS — 씬 구성
+// ======================================================================
+let renderer, glOK = true;
+try{
+  renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('scene'), antialias:true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+}catch(e){
+  // WebGL 미지원 환경 — 메뉴/로직은 살려두고 3D만 비활성화
+  glOK = false;
+  renderer = { render(){}, setSize(){}, setPixelRatio(){}, shadowMap:{} };
+  console.warn('WebGL 사용 불가:', e && e.message);
+}
+
+const scene = new THREE.Scene();
+const SKY_TOP = new THREE.Color(0x6fc0ff), SKY_BOT = new THREE.Color(0xd8f1ff);
+scene.background = SKY_BOT.clone();
+const FOG_COLOR = new THREE.Color(0xbfe6ff);
+scene.fog = new THREE.Fog(FOG_COLOR, 60, 240);
+
+const camera = new THREE.PerspectiveCamera(62, innerWidth/innerHeight, 0.1, 600);
+
+// 조명: 레트로 플랫셰이딩 룩
+const hemi = new THREE.HemisphereLight(0xeaf6ff, 0x5a7a52, 0.95);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xfff4d6, 1.15);
+sun.position.set(40, 80, 30);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024,1024);
+sun.shadow.camera.near = 10; sun.shadow.camera.far = 220;
+sun.shadow.camera.left=-80; sun.shadow.camera.right=80;
+sun.shadow.camera.top=80; sun.shadow.camera.bottom=-80;
+scene.add(sun);
+scene.add(sun.target);
+
+// 그라데이션 하늘 돔
+{
+  const sky = new THREE.Mesh(
+    new THREE.SphereGeometry(400, 24, 16),
+    new THREE.ShaderMaterial({
+      side: THREE.BackSide, depthWrite:false,
+      uniforms:{ top:{value:SKY_TOP}, bot:{value:SKY_BOT} },
+      vertexShader:`varying float h; void main(){ h=normalize(position).y; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+      fragmentShader:`varying float h; uniform vec3 top; uniform vec3 bot;
+        void main(){ float t=clamp(h*0.5+0.5,0.0,1.0); gl_FragColor=vec4(mix(bot,top,pow(t,0.8)),1.0);}`
+    })
+  );
+  scene.add(sky);
+}
+
+// ---------- 헬퍼: 로우폴리 머티리얼 ----------
+const mat = (color)=> new THREE.MeshLambertMaterial({ color, flatShading:true });
+function lp(geo){ geo.computeVertexNormals(); return geo; }
+
+// ======================================================================
+//  지형(바닥) — 펭귄을 따라다니는 큰 평면 + 굴곡
+// ======================================================================
+const GROUND_SIZE = 600;
+const groundGeo = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE, 40, 40);
+groundGeo.rotateX(-Math.PI/2);
+// 완만한 언덕
+const gp = groundGeo.attributes.position;
+for(let i=0;i<gp.count;i++){
+  const x=gp.getX(i), z=gp.getZ(i);
+  const y = Math.sin(x*0.03)*2.2 + Math.cos(z*0.025)*2.6 + Math.sin((x+z)*0.012)*1.8;
+  gp.setY(i, y);
+}
+groundGeo.computeVertexNormals();
+const ground = new THREE.Mesh(groundGeo, mat(0x6fae54));
+ground.receiveShadow = true;
+ground.position.y = -22;
+scene.add(ground);
+
+// 바다/지평선 느낌의 보조 평면 (멀리)
+// (생략 가능 — fog로 충분)
+
+// ======================================================================
+//  펭귄 모델 (프리미티브 조립, 로우폴리)
+// ======================================================================
+const penguin = new THREE.Group();   // 외부 변환(위치/요/피치/뱅크)
+const model   = new THREE.Group();   // 펭귄 본체 — 진행 방향(−z)을 보도록 180° 회전
+// 캐릭터별로 색을 바꿀 수 있는 공유 머티리얼
+const M = {
+  body:  mat(0x232a33),
+  belly: mat(0xf6fbff),
+  beak:  mat(0xff9f43),
+  feet:  mat(0xe8852b),
+};
+
+// 몸통
+const body = new THREE.Mesh(lp(new THREE.SphereGeometry(2.1, 12, 10)), M.body);
+body.scale.set(1, 1.35, 1.05);
+body.castShadow = true;
+model.add(body);
+// 배
+const belly = new THREE.Mesh(lp(new THREE.SphereGeometry(1.55, 12, 10)), M.belly);
+belly.scale.set(1, 1.3, 1); belly.position.set(0, -0.15, 0.85);
+model.add(belly);
+// 머리
+const head = new THREE.Mesh(lp(new THREE.SphereGeometry(1.5, 12, 10)), M.body);
+head.position.set(0, 2.6, 0.1); head.castShadow=true;
+model.add(head);
+// 얼굴
+const face = new THREE.Mesh(lp(new THREE.SphereGeometry(1.05, 12, 10)), M.belly);
+face.scale.set(1,0.95,1); face.position.set(0, 2.5, 0.85);
+model.add(face);
+// 눈
+const eyeGeo = lp(new THREE.SphereGeometry(0.2, 8, 8));
+const eyeMat = new THREE.MeshLambertMaterial({color:0x10151b});
+for(const sx of [-0.55, 0.55]){
+  const e = new THREE.Mesh(eyeGeo, eyeMat);
+  e.position.set(sx, 2.9, 1.35); model.add(e);
+}
+// 부리
+const beak = new THREE.Mesh(lp(new THREE.ConeGeometry(0.42, 1.1, 8)), M.beak);
+beak.rotation.x = Math.PI/2; beak.position.set(0, 2.45, 1.7);
+model.add(beak);
+// 머리깃(볏) — 캐릭터별로 재구성되는 컨테이너
+const crest = new THREE.Group();
+crest.position.set(0, 3.35, 0.1);
+model.add(crest);
+// 날개 (피벗 그룹으로 퍼덕임)
+function makeWing(side){
+  const pivot = new THREE.Group();
+  const wing = new THREE.Mesh(lp(new THREE.SphereGeometry(1.5, 8, 8)), M.body);
+  wing.scale.set(0.32, 1.25, 0.8);
+  wing.position.set(side*1.4, 0, 0);
+  wing.castShadow = true;
+  pivot.add(wing);
+  pivot.position.set(side*1.7, 0.3, 0);
+  model.add(pivot);
+  return pivot;
+}
+const wingL = makeWing(-1), wingR = makeWing(1);
+// 발
+const footGeo = lp(new THREE.SphereGeometry(0.6, 8, 8));
+for(const sx of [-0.8, 0.8]){
+  const f = new THREE.Mesh(footGeo, M.feet);
+  f.scale.set(1, 0.4, 1.6); f.position.set(sx, -2.7, 0.5);
+  model.add(f);
+}
+model.rotation.y = Math.PI;   // 본체를 진행 방향(−z)으로 — 카메라엔 등(뒷모습)이 보임
+penguin.add(model);
+penguin.position.set(0, 0, 0);
+scene.add(penguin);
+
+// 볏 모양 빌더
+function buildCrest(parent, type, color){
+  while(parent.children.length) parent.remove(parent.children[0]);
+  if(!type || type==='none') return;
+  const cm = mat(color);
+  if(type==='tuft'){           // 락호퍼 눈썹깃: 양옆으로 뻗는 노란 술
+    for(const sx of [-1,1]){
+      for(let i=0;i<4;i++){
+        const s = new THREE.Mesh(lp(new THREE.ConeGeometry(0.15,1.0,5)), cm);
+        s.position.set(sx*(0.45+i*0.16), -0.3+i*0.16, 0.55 - i*0.12);
+        s.rotation.z = sx*(0.6 + i*0.12); s.rotation.x = -0.55;
+        parent.add(s);
+      }
+    }
+  } else if(type==='crown'){   // 왕관: 위로 솟은 5개 뿔
+    for(let i=-2;i<=2;i++){
+      const s = new THREE.Mesh(lp(new THREE.ConeGeometry(0.2, 0.55+(2-Math.abs(i))*0.28, 6)), cm);
+      s.position.set(i*0.42, 0.15, 0.15);
+      parent.add(s);
+    }
+  } else if(type==='spike'){   // 모히칸 가시
+    for(let i=0;i<5;i++){
+      const s = new THREE.Mesh(lp(new THREE.ConeGeometry(0.17, 0.5+(2-Math.abs(i-2))*0.3, 5)), cm);
+      s.position.set(0, 0.05, 0.55 - i*0.3);
+      parent.add(s);
+    }
+  } else if(type==='halo'){    // 후광 링(유령 펭귄)
+    const ring = new THREE.Mesh(lp(new THREE.TorusGeometry(0.85,0.09,8,18)), cm);
+    ring.rotation.x = Math.PI/2; ring.position.y = 0.55; parent.add(ring);
+  }
+}
+
+// 플레이 튜닝(캐릭터 스탯 → 실제 물리)
+let liftMul = 1, steerMul = 1;
+// 캐릭터 적용(색/볏/크기/스탯) — CHARACTERS 정의 후 호출
+function applyCharacter(cfg){
+  M.body.color.set(cfg.color.body);
+  M.belly.color.set(cfg.color.belly);
+  M.beak.color.set(cfg.color.beak);
+  M.feet.color.set(cfg.color.feet || cfg.color.beak);
+  buildCrest(crest, cfg.crest, cfg.color.crest || cfg.color.beak);
+  model.scale.setScalar(cfg.scale || 1);
+  if(cfg.stats){
+    flight.speed = 0.30 + cfg.stats.speed * 0.045;   // 1~5 → 0.345~0.525
+    liftMul      = 0.75 + cfg.stats.lift  * 0.10;     // 1~5 → 0.85~1.25
+    steerMul     = 0.70 + cfg.stats.agility * 0.12;   // 1~5 → 0.82~1.30
+  }
+}
+
+// 펭귄 그림자 받이용 — 이미 ground가 receiveShadow
+
+// ======================================================================
+//  지형지물: 나무 / 돌 / 구름 (오브젝트 풀 + 재활용)
+// ======================================================================
+function makeTree(){
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(lp(new THREE.CylinderGeometry(0.5,0.7,3,6)), mat(0x8a5a2b));
+  trunk.position.y = 1.5; trunk.castShadow=true; g.add(trunk);
+  const cols = [0x3f8f3a, 0x4fa54a, 0x357f37];
+  for(let i=0;i<3;i++){
+    const c = new THREE.Mesh(lp(new THREE.ConeGeometry(2.4-i*0.55, 2.6, 7)), mat(cols[i%3]));
+    c.position.y = 3 + i*1.5; c.castShadow=true; g.add(c);
+  }
+  return g;
+}
+function makeRock(){
+  const g = new THREE.Group();
+  const n = 1 + (Math.random()*2|0);
+  for(let i=0;i<n;i++){
+    const r = new THREE.Mesh(lp(new THREE.DodecahedronGeometry(0.8+Math.random()*1.4, 0)),
+      mat([0x8a8f96,0x9aa0a8,0x77808a][i%3]));
+    r.position.set((Math.random()-.5)*2.2, 0.4+Math.random()*0.4, (Math.random()-.5)*2.2);
+    r.rotation.set(Math.random()*3,Math.random()*3,Math.random()*3);
+    r.castShadow=true; g.add(r);
+  }
+  return g;
+}
+function makeCloud(){
+  const g = new THREE.Group();
+  const m = new THREE.MeshLambertMaterial({color:0xffffff, flatShading:true, transparent:true, opacity:0.92});
+  const n = 3 + (Math.random()*3|0);
+  for(let i=0;i<n;i++){
+    const p = new THREE.Mesh(lp(new THREE.IcosahedronGeometry(2+Math.random()*2.5, 0)), m);
+    p.position.set((Math.random()-.5)*8, (Math.random()-.5)*1.5, (Math.random()-.5)*4);
+    g.add(p);
+  }
+  return g;
+}
+
+// 풀 생성
+const GROUND_Y = -22;
+const SPAWN_AHEAD = 60, RECYCLE_BEHIND = 90, SPREAD = 120;
+const scenery = [];
+function addScenery(kind, count){
+  for(let i=0;i<count;i++){
+    let obj;
+    if(kind==='tree') obj = makeTree();
+    else if(kind==='rock') obj = makeRock();
+    else obj = makeCloud();
+    placeAhead(obj, true);
+    obj.userData.kind = kind;
+    scene.add(obj); scenery.push(obj);
+  }
+}
+function placeAhead(obj, initial){
+  const px = penguin.position.x;
+  obj.position.x = px + (Math.random()-0.5)*SPREAD;
+  obj.position.z = penguin.position.z - (initial ? Math.random()* (SPAWN_AHEAD+RECYCLE_BEHIND) - RECYCLE_BEHIND : SPAWN_AHEAD + Math.random()*40);
+  if(obj.userData.kind === 'cloud'){
+    obj.position.y = 6 + Math.random()*26;
+    obj.scale.setScalar(0.8 + Math.random()*1.4);
+  } else {
+    // 바닥 높이에 맞춰 배치
+    obj.position.y = GROUND_Y + 0.2;
+    obj.rotation.y = Math.random()*Math.PI*2;
+    obj.scale.setScalar(0.8 + Math.random()*0.9);
+  }
+}
+addScenery('tree', 26);
+addScenery('rock', 16);
+addScenery('cloud', 18);
+
+// ======================================================================
+//  비행 물리 / 상태
+// ======================================================================
+const flight = {
+  x: 0,            // 좌우 위치
+  y: 8,            // 고도(펭귄 y)
+  z: 0,            // 전진(−z로 진행)
+  vx: 0,
+  vy: 0,
+  speed: 0.42,     // 전진 속도(프레임당 z 감소)
+  bank: 0,         // 시각적 좌우 기울기
+  pitch: 0,        // 시각적 상하 기울기
+  dist: 0,
+};
+const Y_MIN = GROUND_Y + 6, Y_MAX = 60;
+
+// 제스처 입력(매끄럽게 보간)
+const input = { steer: 0, lift: 0 }; // steer: -1(좌)~+1(우), lift: 0~1
+
+// ======================================================================
+//  MediaPipe Pose
+// ======================================================================
+let poseLandmarker = null;
+let running = false;
+let lastVideoTime = -1;
+
+async function initPose(){
+  statusEl.innerHTML = '<span class="spin"></span>포즈 모델 로딩 중…';
+  const vision = await FilesetResolver.forVisionTasks(
+    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.12/wasm'
+  );
+  poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+      delegate: 'GPU'
+    },
+    runningMode: 'VIDEO',
+    numPoses: 1
+  });
+}
+
+async function initCamera(){
+  statusEl.innerHTML = '<span class="spin"></span>카메라 연결 중…';
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { width:640, height:480, facingMode:'user' }, audio:false
+  });
+  video.srcObject = stream;
+  await new Promise(res => { video.onloadedmetadata = ()=>{ video.play(); res(); }; });
+  poseFx.width = video.videoWidth; poseFx.height = video.videoHeight;
+}
+
+// 랜드마크 인덱스
+const L_SH=11, R_SH=12, L_EL=13, R_EL=14, L_WR=15, R_WR=16;
+
+// 파닥 감지용 히스토리
+const flapHist = [];        // 최근 손목 평균 y
+let flapEnergy = 0;         // 0~1, 감쇠
+let lastWristAvgY = null;
+
+// 제스처 분석
+function analyzePose(lm){
+  const ls=lm[L_SH], rs=lm[R_SH], lw=lm[L_WR], rw=lm[R_WR];
+  if(!ls||!rs||!lw||!rw) return;
+  // 어깨 폭(정규화 거리)으로 스케일 보정
+  const shoulderW = Math.hypot(ls.x-rs.x, ls.y-rs.y) + 1e-4;
+  const shoulderY = (ls.y + rs.y)/2;
+
+  // 각 손목이 어깨보다 얼마나 아래인지(+: 아래로 내림). y는 아래로 증가.
+  const lDown = (lw.y - ls.y) / shoulderW;  // 왼팔 내림 정도
+  const rDown = (rw.y - rs.y) / shoulderW;  // 오른팔 내림 정도
+
+  // 조향: 한쪽이 더 내려가면 그 쪽으로.
+  //  오른팔이 더 내려감(rDown>lDown) → 오른쪽(+)
+  let steer = (rDown - lDown);
+  // 데드존 + 게인
+  const DEAD = 0.18;
+  if(Math.abs(steer) < DEAD) steer = 0;
+  else steer = (steer - Math.sign(steer)*DEAD);
+  steer = Math.max(-1, Math.min(1, steer * 1.6));
+
+  // 파닥 감지: 양손목 평균 y의 진동(상하 움직임) 에너지
+  // 빨리 감쇠시켜 "계속 격렬하게" 움직여야만 양력이 유지되게 한다.
+  const wristAvgY = (lw.y + rw.y)/2;
+  if(lastWristAvgY !== null){
+    const dv = Math.abs(wristAvgY - lastWristAvgY) / shoulderW; // 정규화 속도
+    flapEnergy = flapEnergy*0.74 + dv*3.4;                      // 감쇠↑(0.86→0.74)
+  }
+  lastWristAvgY = wristAvgY;
+  // 임계값↑ — 살짝 움직이는 정도로는 양력 0. 활발히 파닥여야 1에 도달.
+  const lift = Math.max(0, Math.min(1, (flapEnergy - 0.20) * 1.6));
+
+  // 보간: 올라갈 땐 약간 부드럽게, 멈출 땐 빠르게 떨어뜨려 즉시 하강.
+  input.steer += (steer - input.steer) * 0.25;
+  input.lift  += (lift  - input.lift ) * (lift > input.lift ? 0.30 : 0.55);
+
+  drawPoseFx(lm, steer, lift);
+}
+
+// 웹캠 위 스켈레톤 오버레이
+function drawPoseFx(lm, steer, lift){
+  const w=poseFx.width, h=poseFx.height;
+  pctx.clearRect(0,0,w,h);
+  const P = i => ({x:lm[i].x*w, y:lm[i].y*h});
+  const bones = [[L_SH,R_SH],[L_SH,L_EL],[L_EL,L_WR],[R_SH,R_EL],[R_EL,R_WR]];
+  pctx.lineWidth = 4; pctx.lineCap='round';
+  pctx.strokeStyle = lift>0.3 ? '#ffd166' : '#7ec8ff';
+  pctx.shadowColor = pctx.strokeStyle; pctx.shadowBlur = 8;
+  for(const [a,b] of bones){
+    if(!lm[a]||!lm[b]) continue;
+    const A=P(a), B=P(b);
+    pctx.beginPath(); pctx.moveTo(A.x,A.y); pctx.lineTo(B.x,B.y); pctx.stroke();
+  }
+  pctx.shadowBlur=0;
+  for(const i of [L_SH,R_SH,L_EL,R_EL,L_WR,R_WR]){
+    if(!lm[i]) continue; const p=P(i);
+    pctx.fillStyle = (i===L_WR||i===R_WR)?'#ff7b54':'#eaf6ff';
+    pctx.beginPath(); pctx.arc(p.x,p.y, i===L_WR||i===R_WR?7:5, 0, 7); pctx.fill();
+  }
+}
+
+function detectLoop(){
+  if(!running) return;
+  if(poseLandmarker && video.readyState >= 2 && video.currentTime !== lastVideoTime){
+    lastVideoTime = video.currentTime;
+    const res = poseLandmarker.detectForVideo(video, performance.now());
+    if(res.landmarks && res.landmarks[0]) analyzePose(res.landmarks[0]);
+    else { input.steer*=0.9; input.lift*=0.85; flapEnergy*=0.8; pctx.clearRect(0,0,poseFx.width,poseFx.height); }
+  }
+  requestAnimationFrame(detectLoop);
+}
+
+// ======================================================================
+//  메인 렌더 루프 (물리 + 카메라 + 애니메이션)
+// ======================================================================
+let t = 0;
+function tick(){
+  requestAnimationFrame(tick);
+  t += 1;
+
+  // --- 어트랙트 모드: 시작 전엔 펭귄이 스스로 날며 시작화면 배경이 됨 ---
+  if(!running){
+    input.steer = Math.sin(t*0.011) * 0.5 + Math.sin(t*0.027)*0.18;
+    input.lift  = 0.55 + Math.sin(t*0.12) * 0.45;   // 자동 날갯짓으로 떴다 가라앉음
+  }
+
+  // --- 입력 → 물리 ---
+  // 좌우: 조향에 따라 가속도
+  flight.vx += (input.steer * 0.9 * steerMul - flight.vx) * 0.08;
+  flight.x  += flight.vx;
+  flight.x  = Math.max(-70, Math.min(70, flight.x));
+
+  // 상하: 격렬히 파닥여야만 상승, 안 하면 무조건 중력으로 하강
+  const lift = input.lift;
+  const gravity = -0.17;             // 상시 강한 하강력
+  const liftForce = lift * 0.44 * liftMul;   // lift≈1(맹렬한 날갯짓)이라야 중력을 이김
+  flight.vy += (liftForce + gravity);
+  flight.vy *= 0.92;                 // 공기 저항
+  flight.y  += flight.vy;
+  if(flight.y < Y_MIN){ flight.y = Y_MIN; flight.vy = Math.max(0, flight.vy)*0.3; }
+  if(flight.y > Y_MAX){ flight.y = Y_MAX; flight.vy = Math.min(0, flight.vy); }
+
+  // 전진
+  flight.z -= flight.speed;
+  flight.dist += flight.speed;
+
+  // --- 펭귄 트랜스폼 ---
+  penguin.position.set(flight.x, flight.y, flight.z);
+  // 시각적 뱅크/피치
+  flight.bank  += ((-input.steer*0.5) - flight.bank) * 0.12;
+  flight.pitch += ((flight.vy*0.25)   - flight.pitch) * 0.12;
+  penguin.rotation.z = flight.bank;
+  penguin.rotation.x = -flight.pitch;
+  penguin.rotation.y = -input.steer*0.25; // 살짝 요잉
+  // 위아래 둥실
+  penguin.position.y += Math.sin(t*0.06)*0.25;
+
+  // --- 날갯짓 애니메이션 ---
+  const flapSpeed = 0.18 + lift*0.45;
+  const flapAmp   = 0.35 + lift*0.95;
+  const wf = Math.sin(t*flapSpeed*2.0)*flapAmp;
+  wingL.rotation.z =  wf + 0.2;
+  wingR.rotation.z = -wf - 0.2;
+
+  // --- 카메라: 펭귄을 항상 화면 중앙에 고정 추적 ---
+  // 좌우(x)는 즉시 일치시켜 화면 밖으로 벗어나지 않게, 상하/전후는 부드럽게 보간.
+  const camTarget = new THREE.Vector3(flight.x, flight.y + 4, flight.z + 22);
+  camera.position.y += (camTarget.y - camera.position.y) * 0.1;
+  camera.position.z += (camTarget.z - camera.position.z) * 0.1;
+  camera.position.x = flight.x;                 // 좌우는 잠금 → 항상 중앙
+  camera.lookAt(flight.x, flight.y + 1, flight.z - 10);  // 시선도 펭귄을 정조준
+
+  // 태양/그림자 펭귄 따라가기
+  sun.position.set(flight.x+40, 80, flight.z+30);
+  sun.target.position.set(flight.x, GROUND_Y, flight.z);
+
+  // 바닥이 펭귄을 따라오게(무한 지형 느낌)
+  ground.position.x = flight.x;
+  ground.position.z = flight.z;
+
+  // --- 지형지물 재활용 ---
+  for(const obj of scenery){
+    if(obj.position.z > flight.z + RECYCLE_BEHIND){
+      placeAhead(obj, false);
+    }
+    // 구름 천천히 흐름
+    if(obj.userData.kind==='cloud') obj.position.x += 0.02;
+  }
+
+  // --- HUD ---
+  distEl.textContent = Math.floor(flight.dist);
+  updateChips();
+
+  renderer.render(scene, camera);
+}
+
+function updateChips(){
+  const s = input.steer, l = input.lift;
+  chips.left.classList.toggle('on', s < -0.18);
+  chips.right.classList.toggle('on', s > 0.18);
+  chips.straight.classList.toggle('on', Math.abs(s) <= 0.18);
+  chips.flap.classList.toggle('on', l > 0.3);
+}
+
+// ======================================================================
+//  시작 / 리사이즈
+// ======================================================================
+// ======================================================================
+//  캐릭터 — 이름 / 색 / 모양 / 스토리 / 스탯
+//  세계관: 남극의 밤하늘 '오로라 로드' — 끝까지 날면 별이 된다는 전설.
+// ======================================================================
+const CHARACTERS = [
+  {
+    id:'pippi', name:'삐삐', epithet:'막내의 첫 비행',
+    color:{ body:0x2a3340, belly:0xf6fbff, beak:0xffc23d, feet:0xff9f2e },
+    crest:'none', scale:0.92, stats:{ speed:3, lift:3, agility:3 },
+    story:'황제펭귄 무리의 막내. 누구보다 작지만 누구보다 높은 하늘을 꿈꾼다. "내가 제일 멀리 날 거야" — 그 말을 증명하러 오로라 로드에 올랐다. 무엇 하나 모자람 없는 균형형, 첫 비행에 딱 좋다.'
+  },
+  {
+    id:'nova', name:'노바', epithet:'자정의 항해자',
+    color:{ body:0x1b2a6b, belly:0xcfe3ff, beak:0x6fd2ff, feet:0x3a8de0, crest:0x8fe0ff },
+    crest:'spike', scale:0.98, stats:{ speed:5, lift:2, agility:4 },
+    story:'오로라만을 쫓는 푸른 탐험가. 별자리를 읽어 가장 빠른 바람길을 찾아낸다. 속도는 군단 최고지만 가벼운 몸이라, 오래 떠 있으려면 누구보다 부지런히 날갯짓해야 한다.'
+  },
+  {
+    id:'koko', name:'코코', epithet:'화산섬의 락호퍼',
+    color:{ body:0x35202b, belly:0xfff0f5, beak:0xff8a3d, feet:0xff5d8f, crest:0xffe14d },
+    crest:'tuft', scale:0.9, stats:{ speed:3, lift:3, agility:5 },
+    story:'붉은 화산섬에서 바위를 뛰어다니며 자란 락호퍼펭귄. 노란 눈썹깃이 트레이드마크다. 좁은 바위틈을 누비던 몸놀림 그대로, 군단에서 가장 날렵하게 방향을 튼다.'
+  },
+  {
+    id:'bolt', name:'번개', epithet:'폭풍 속에서 태어난',
+    color:{ body:0x3a2c12, belly:0xfff6d8, beak:0xffd000, feet:0xffb300, crest:0xffe14d },
+    crest:'crown', scale:1.05, stats:{ speed:4, lift:5, agility:2 },
+    story:'천둥치던 밤, 번개가 둥지를 때린 순간 알을 깨고 나왔다. 날개에 전류가 흐른다는 소문이 돈다. 한 번의 날갯짓이 누구보다 강력해 단숨에 하늘 높이 솟구친다.'
+  },
+  {
+    id:'iglu', name:'이글루', epithet:'빙하의 수호자',
+    color:{ body:0xdfeefc, belly:0xffffff, beak:0x9fd0ff, feet:0xbfe0ff, crest:0x9fd0ff },
+    crest:'none', scale:1.12, stats:{ speed:2, lift:4, agility:2 },
+    story:'눈보다 흰 알비노 펭귄. 수백 년 빙하를 지켜온 늙은 영혼이 깃들었다 전해진다. 크고 묵직해 바람에 흔들리지 않고 안정적으로 난다 — 초보에게 가장 너그러운 펭귄.'
+  },
+  {
+    id:'geurim', name:'그림', epithet:'밤에만 나타나는',
+    color:{ body:0x241a3a, belly:0xb8a7e6, beak:0xb07bff, feet:0x7a52c0, crest:0xc9b3ff },
+    crest:'halo', scale:0.95, stats:{ speed:4, lift:4, agility:4 },
+    story:'달이 없는 밤에만 모습을 드러내는 수수께끼의 펭귄. 후광 같은 고리를 두르고 소리 없이 활공한다. 모든 능력이 고루 빼어나지만, 아직 아무도 그 정체를 알지 못한다.'
+  },
+];
+
+// ---------- 화면 전환 ----------
+const storyEl = document.getElementById('story');
+const selectEl = document.getElementById('select');
+const screens = { gate, story:storyEl, select:selectEl };
+function show(name){ for(const k in screens) screens[k].classList.toggle('hidden', k!==name); }
+
+// ---------- 포트레이트 SVG ----------
+const hex = n => '#' + n.toString(16).padStart(6,'0');
+function portraitSVG(c){
+  const body=hex(c.color.body), belly=hex(c.color.belly), beak=hex(c.color.beak),
+        cc=hex(c.color.crest||c.color.beak);
+  let crest='';
+  if(c.crest==='tuft') crest=`<path d="M24 30 L9 15 M28 26 L16 11" stroke="${cc}" stroke-width="4.5" stroke-linecap="round" fill="none"/><path d="M76 30 L91 15 M72 26 L84 11" stroke="${cc}" stroke-width="4.5" stroke-linecap="round" fill="none"/>`;
+  else if(c.crest==='spike') crest=`<path d="M40 16 L44 3 L48 13 L52 3 L56 13 L60 16 Z" fill="${cc}"/>`;
+  else if(c.crest==='crown') crest=`<path d="M32 17 L37 4 L45 13 L50 2 L55 13 L63 4 L68 17 Z" fill="${cc}"/>`;
+  else if(c.crest==='halo') crest=`<ellipse cx="50" cy="13" rx="21" ry="6" fill="none" stroke="${cc}" stroke-width="3"/>`;
+  return `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" shape-rendering="geometricPrecision">
+    <ellipse cx="24" cy="62" rx="8" ry="20" fill="${body}"/><ellipse cx="76" cy="62" rx="8" ry="20" fill="${body}"/>
+    <ellipse cx="50" cy="62" rx="30" ry="34" fill="${body}"/>
+    <ellipse cx="50" cy="66" rx="19" ry="26" fill="${belly}"/>
+    <circle cx="50" cy="35" r="22" fill="${body}"/>
+    <ellipse cx="50" cy="41" rx="14" ry="13" fill="${belly}"/>
+    <circle cx="43" cy="35" r="3.4" fill="#10151b"/><circle cx="57" cy="35" r="3.4" fill="#10151b"/>
+    <path d="M44 43 L56 43 L50 53 Z" fill="${beak}"/>
+    ${crest}
+  </svg>`;
+}
+
+// ---------- 셀렉트 로직 ----------
+const roster   = document.getElementById('roster');
+const dName    = document.getElementById('dName');
+const dEpithet = document.getElementById('dEpithet');
+const dStats   = document.getElementById('dStats');
+const dStory   = document.getElementById('dStory');
+let selIdx = 0, rosterBuilt = false;
+
+function bars(n){ let s=''; for(let i=0;i<5;i++) s+=`<i class="${i<n?'f':''}"></i>`; return s; }
+function buildRoster(){
+  roster.innerHTML = CHARACTERS.map((c,i)=>
+    `<div class="pcard" data-i="${i}">${portraitSVG(c)}<div class="pn">${c.name}</div></div>`).join('');
+  roster.querySelectorAll('.pcard').forEach(el=> el.addEventListener('click', ()=> selectChar(+el.dataset.i)));
+  rosterBuilt = true;
+}
+function selectChar(i){
+  selIdx = (i + CHARACTERS.length) % CHARACTERS.length;
+  const c = CHARACTERS[selIdx];
+  roster.querySelectorAll('.pcard').forEach((el,idx)=> el.classList.toggle('sel', idx===selIdx));
+  dName.textContent = c.name;
+  dEpithet.textContent = '"' + c.epithet + '"';
+  dStats.innerHTML =
+    `<div class="stat-row"><span class="sl">SPEED</span><span class="bar">${bars(c.stats.speed)}</span></div>`+
+    `<div class="stat-row"><span class="sl">LIFT</span><span class="bar">${bars(c.stats.lift)}</span></div>`+
+    `<div class="stat-row"><span class="sl">AGILITY</span><span class="bar">${bars(c.stats.agility)}</span></div>`;
+  dStory.textContent = c.story;
+  applyCharacter(c);   // 뒤에서 나는 배경 펭귄도 실시간으로 변신!
+}
+
+// ---------- 프롤로그 타이핑 ----------
+const storyText = document.getElementById('storyText');
+const PROLOGUE =
+`먼 옛날, 남극의 밤하늘엔 '오로라 로드'라
+불리는 빛의 길이 있었다.
+
+그 길 끝까지 날아오른 펭귄만이
+별이 될 수 있다고 전해진다.
+
+빙하가 녹고 무리가 흩어진 지금,
+다시 하늘을 꿈꾸는 펭귄들이 모였다.
+
+너의 날갯짓이, 곧 그들의 날개가 된다.`;
+let typer = null;
+function typeStory(){
+  clearInterval(typer);
+  let i = 0;
+  typer = setInterval(()=>{
+    storyText.innerHTML = PROLOGUE.slice(0,i).replace(/\n/g,'<br>') + '<span class="cur">▌</span>';
+    if(++i > PROLOGUE.length){ clearInterval(typer); storyText.innerHTML = PROLOGUE.replace(/\n/g,'<br>'); }
+  }, 28);
+}
+
+// ---------- 게임 시작(카메라+포즈) ----------
+async function beginGame(){
+  selectEl.querySelector('#status').textContent = '';
+  statusEl.innerHTML = '<span class="spin"></span>카메라 연결 중…';
+  confirmCharBtn.disabled = true;
+  try{
+    applyCharacter(CHARACTERS[selIdx]);   // 최종 확정
+    await initCamera();
+    await initPose();
+    running = true;
+    document.body.classList.add('playing');
+    show(null);                            // 모든 오버레이 숨김
+    detectLoop();
+  }catch(err){
+    console.error(err);
+    confirmCharBtn.disabled = false;
+    statusEl.textContent = '오류: ' + (err.message || err) + ' — 카메라 권한 확인';
+  }
+}
+
+// ---------- 흐름 연결 ----------
+const toSelectBtn    = document.getElementById('toSelect');
+const skipStoryBtn   = document.getElementById('skipStory');
+const confirmCharBtn = document.getElementById('confirmChar');
+
+function gotoSelect(){
+  clearInterval(typer);
+  if(!rosterBuilt) buildRoster();
+  show('select');
+  selectChar(selIdx);
+}
+startBtn.addEventListener('click', ()=>{ show('story'); typeStory(); });
+toSelectBtn.addEventListener('click', gotoSelect);
+skipStoryBtn.addEventListener('click', gotoSelect);
+confirmCharBtn.addEventListener('click', beginGame);
+
+// 셀렉트 화면 키보드 조작
+addEventListener('keydown', (e)=>{
+  if(running || selectEl.classList.contains('hidden')) return;
+  if(e.key==='ArrowLeft')  selectChar(selIdx-1);
+  else if(e.key==='ArrowRight') selectChar(selIdx+1);
+  else if(e.key==='Enter') beginGame();
+});
+
+// 타이틀 화면 펭귄 기본 외형
+applyCharacter(CHARACTERS[0]);
+
+addEventListener('resize', ()=>{
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// 게임 루프는 즉시 시작(게이트 뒤에서 미리 도는 배경 비행)
+tick();
+</script>
+</body>
+</html>
